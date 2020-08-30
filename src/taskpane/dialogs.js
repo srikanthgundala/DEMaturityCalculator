@@ -35,7 +35,7 @@ function init() {
         /**
          * @type {string} 
          */
-        var url = getUrl() + "dialogs.html";
+        var url = getUrl(true) + "dialogs.html";
         return url;
     }
     return this;

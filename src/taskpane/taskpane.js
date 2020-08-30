@@ -17,7 +17,7 @@ Office.onReady(info => {
 export async function run() {
   try {
     var platform = Office.context.platform;
-    
+    OfficeExtension.config.extendedErrorLogging = true;
     Wait.Show("Processing Project Responses", false, function() {
 
     });
@@ -260,6 +260,7 @@ export async function run() {
 
       summaryTable = maturitySheet.tables.getItem("SummaryTable");
       for (var i = 0; i < projectSheetsData.length; i++) {
+        var projectSheetData = projectSheetsData[i];
         var projectSheet = sheets.getItem(projectSheetsData[i].projectSheetName);
         var level1filter = projectSheet.tables.getItem("Level1Table" + projectResponses.values[i][0]).columns.getItem("Response").filter;
         applyFilter(level1filter);
