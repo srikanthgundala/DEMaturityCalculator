@@ -1,0 +1,391 @@
+# Architecture — DEMaturityCalculator Excel Add-in
+
+> This document describes how the add-in is structured, how each layer interacts, and how data flows from raw survey responses to the finished maturity report.
+
+---
+
+## Table of Contents
+
+1. [High-Level Overview](#1-high-level-overview)
+2. [Technology Stack](#2-technology-stack)
+3. [Repository Layout](#3-repository-layout)
+4. [Manifest & Office Platform Integration](#4-manifest--office-platform-integration)
+5. [Build Pipeline (Webpack)](#5-build-pipeline-webpack)
+6. [Runtime Layers](#6-runtime-layers)
+   - 6.1 [Office Initialisation Layer](#61-office-initialisation-layer)
+   - 6.2 [Task Pane UI Layer](#62-task-pane-ui-layer)
+   - 6.3 [Core Calculation Engine](#63-core-calculation-engine)
+   - 6.4 [Excel Output Layer](#64-excel-output-layer)
+   - 6.5 [Dialog / UX Feedback Layer](#65-dialog--ux-feedback-layer)
+7. [Data Flow](#7-data-flow)
+8. [Workbook State Machine](#8-workbook-state-machine)
+9. [Key Design Decisions](#9-key-design-decisions)
+10. [Extension Points](#10-extension-points)
+
+---
+
+## 1. High-Level Overview
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                  Microsoft Excel Process                  │
+│                                                          │
+│  ┌────────────────┐        ┌────────────────────────┐   │
+│  │   Form1 Sheet  │        │  DEMaturitySummary     │   │
+│  │   (Table1)     │        │  + Per-Project Sheets  │   │
+│  └───────┬────────┘        └────────────▲───────────┘   │
+│          │  read                        │ write          │
+│  ┌───────▼────────────────────────────────────────────┐  │
+│  │              Office JavaScript API (ExcelApi)      │  │
+│  └───────▲────────────────────────────────────────────┘  │
+│          │                                               │
+└──────────│───────────────────────────────────────────────┘
+           │
+┌──────────▼───────────────────────────────────────────────┐
+│               Add-in Web Application                      │
+│           (hosted at https://localhost:3000)              │
+│                                                          │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │  taskpane.html  ──────────►  taskpane.js          │   │
+│  │  (UI shell)                 (core logic)          │   │
+│  └──────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │  dialogs.js   (officejs.dialogs v1.0.9)           │   │
+│  │  Wait · MessageBox · Alert · Progress             │   │
+│  └──────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │  commands.js  (ribbon button command handler)     │   │
+│  └──────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────┘
+```
+
+The add-in is a **single-page web application** served over HTTPS. It communicates with Excel exclusively through the **Office JavaScript API** (`office.js`). There is no back-end service; all computation runs client-side inside the browser/webview embedded in Excel.
+
+---
+
+## 2. Technology Stack
+
+| Layer | Technology | Version |
+|---|---|---|
+| Host application | Microsoft Excel | Any (Desktop + Online) |
+| Office API surface | Office JS (`ExcelApi`) | 1.1 / 1.2 |
+| Language | JavaScript (ES2015+) | — |
+| Module bundler | Webpack | 4.x |
+| Transpiler | Babel (`@babel/preset-env`) | 7.x |
+| UI framework | Office UI Fabric Core CSS | 9.6.1 |
+| Dialog library | `officejs.dialogs` | 1.0.9 |
+| Dev tooling | `office-addin-debugging`, `office-addin-dev-certs` | 3.x / 1.5.x |
+
+---
+
+## 3. Repository Layout
+
+```
+DEMaturityCalculator/
+│
+├── manifest.xml                  # Office add-in manifest (routing, metadata)
+├── package.json                  # npm scripts and dependency declarations
+├── webpack.config.js             # Build configuration
+├── tsconfig.json                 # TypeScript config (kept for devDependency compatibility)
+│
+├── assets/                       # Static image assets
+│   ├── neudesilogo.png           # Neudesic logo shown in the task pane header
+│   ├── icon-16.png               # Ribbon icon (16 × 16)
+│   ├── icon-32.png               # Ribbon icon (32 × 32)
+│   └── icon-80.png               # Ribbon icon (80 × 80)
+│
+├── src/
+│   ├── taskpane/
+│   │   ├── taskpane.html         # Task pane markup (UI shell)
+│   │   ├── taskpane.js           # ★ Core add-in logic (entry point)
+│   │   ├── taskpane.css          # Task pane styles (Office Fabric overrides)
+│   │   ├── dialogs.js            # officejs.dialogs library (Wait / MessageBox)
+│   │   └── dialogs.html          # HTML template consumed by dialogs.js
+│   └── commands/
+│       ├── commands.html         # Commands function file (required by manifest)
+│       └── commands.js           # Ribbon command handler (currently a stub)
+│
+├── dist/                         # ★ Production build output (generated by Webpack)
+└── docs/                         # Documentation (this folder)
+```
+
+---
+
+## 4. Manifest & Office Platform Integration
+
+`manifest.xml` is an **Office Add-in Manifest v1.1** file that tells Excel:
+
+| Setting | Value |
+|---|---|
+| Add-in type | `TaskPaneApp` |
+| Host | `Workbook` (Excel only) |
+| Permission | `ReadWriteDocument` (full read/write access to the workbook) |
+| Default source URL | `https://localhost:3000/taskpane.html` |
+| Ribbon entry point | Added to **Home tab** → **DE Group** button group |
+| Ribbon button label | "Show DEMaturityCalculator" |
+| Ribbon button action | Opens the task pane (`ShowTaskpane`) |
+| Commands file | `https://localhost:3000/commands.html` |
+| Add-in GUID | `1c9376c1-ee2d-4875-82ee-f1bf4eed4374` |
+
+The manifest embeds three icon sizes (16 px, 32 px, 80 px) and references resources through `resid` tokens resolved in the `<Resources>` block.
+
+---
+
+## 5. Build Pipeline (Webpack)
+
+`webpack.config.js` defines **two entry points**:
+
+```
+@babel/polyfill ──┐
+                  ├──► taskpane bundle  ──► dist/taskpane.html + taskpane.js
+src/taskpane/taskpane.js ──┘
+
+@babel/polyfill ──┐
+                  ├──► commands bundle ──► dist/commands.html + commands.js
+src/commands/commands.js ──┘
+```
+
+Additional artefacts copied verbatim into `dist/`:
+- `taskpane.css`
+- `dialogs.js`
+- `dialogs.html`
+- `assets/` folder (all images)
+
+**Babel transpilation** ensures that modern JavaScript (async/await, arrow functions, `const`/`let`) is compiled down to ES5 for compatibility with older Trident/Edge WebViews embedded in Office desktop clients.
+
+The `devServer` block configures:
+- HTTPS (mandatory for Office add-ins)
+- Port 3000
+- `Access-Control-Allow-Origin: *` response header
+
+---
+
+## 6. Runtime Layers
+
+### 6.1 Office Initialisation Layer
+
+```javascript
+// taskpane.js
+Office.onReady(info => {
+  if (info.host === Office.HostType.Excel) {
+    document.getElementById("sideload-msg").style.display = "none";
+    document.getElementById("app-body").style.display = "flex";
+    document.getElementById("run").onclick = run;
+  }
+});
+```
+
+`Office.onReady` is the mandatory entry point for every Office add-in. It fires once the Office JS library has finished loading and the host application (Excel) is ready. The callback:
+1. Hides the "Please sideload" message.
+2. Reveals the main application body.
+3. Binds the `run` function to the **Calculate Maturity** button click event.
+4. Guards against loading in non-Excel hosts.
+
+### 6.2 Task Pane UI Layer
+
+`taskpane.html` is a minimal HTML shell:
+
+```
+<header>  — Neudesic logo + "Welcome" heading
+<section> — "Please sideload" message (hidden after Office.onReady)
+<main>    — "DEMaturity Calculator" label + "Calculate Maturity" button (#run)
+```
+
+Styling is provided by **Office UI Fabric Core 9.6.1** (CDN) and a local `taskpane.css` that adjusts flex layout and button colours.
+
+### 6.3 Core Calculation Engine
+
+All business logic lives inside the `run()` async function in `taskpane.js`. It is structured in three phases:
+
+#### Phase 1 — Read (single `context.sync`)
+
+```
+Excel.run(context => {
+  1. Load all worksheets (names only)
+  2. Get reference to "Form1" → "Table1"
+  3. Load header row  (question text)
+  4. Load data rows   (project responses)
+  await context.sync()   ← one round-trip to Excel
+})
+```
+
+#### Phase 2 — Calculate & build summary
+
+```
+  5. Delete all sheets except "Form1" and "_*" sheets
+  6. Create "DEMaturitySummary" sheet + SummaryTable
+  7. For each project row:
+     a. CalculateLevelScore() × 4  (L1 60%, L2 20%, L3 10%, L4 10%)
+     b. Sum weighted scores → finalScore
+     c. Map finalScore → maturity label (M1/M2/M3/M4)
+     d. Append row to SummaryTable
+     e. Create per-project sheet (name reserved)
+  await context.sync()
+```
+
+#### Phase 3 — Write project sheets
+
+```
+  8. For each project sheet:
+     a. Write A1:B11 summary block
+     b. Apply cell formatting (colours, borders, bold)
+     c. addLevelTable() × 4  ← renders question/response tables
+     d. AutoFit columns & rows
+  await context.sync()   ← per project (or batched for Online)
+
+  9. Apply hyperlinks (summary ↔ project sheets)
+  10. Apply response filters (show non-perfect answers only)
+  11. Activate DEMaturitySummary sheet
+  await context.sync()
+```
+
+### 6.4 Excel Output Layer
+
+All Excel mutations go through **Office JS `ExcelApi`**:
+
+| Operation | API used |
+|---|---|
+| Add worksheet | `worksheets.add(name)` |
+| Delete worksheet | `worksheet.delete()` |
+| Add table | `worksheet.tables.add(range, hasHeaders)` |
+| Set cell values | `range.values = [[...]]` |
+| Set font colour | `range.format.font.color` |
+| Set fill colour | `range.format.fill.color` |
+| Set borders | `range.format.borders.getItem(side).style` |
+| AutoFit | `range.format.autofitColumns() / autofitRows()` *(ExcelApi 1.2+)* |
+| Set hyperlink | `range.hyperlink = { textToDisplay, screenTip, documentReference }` |
+| Apply column filter | `column.filter.apply({ filterOn: values, values: [...] })` |
+
+The code checks `Office.context.requirements.isSetSupported("ExcelApi", "1.2")` before calling AutoFit, ensuring backward compatibility with Excel clients that only support ExcelApi 1.1.
+
+### 6.5 Dialog / UX Feedback Layer
+
+The add-in uses the **`officejs.dialogs`** library (v1.0.9, bundled as `dialogs.js`) which wraps the Office Dialog API to show modal overlays without blocking the JavaScript thread:
+
+| Global object | Purpose | Usage in add-in |
+|---|---|---|
+| `Wait` | Indeterminate spinner | Shown at start of `run()`, closed when done or on error |
+| `MessageBox` | Modal error dialog with OK button | Shown when `Excel.run` catches an error |
+| `Alert` | Simple alert (referenced but not used in the current release) | — |
+| `Progress` | Progress bar | Available but not used |
+| `InputBox` | Input form | Available but not used |
+
+Error handling flow:
+```
+Excel.run(...).catch(error => {
+  Wait.CloseDialogAsync(() => {
+    MessageBox.Show(errorMessage, "Error", OkOnly, Error, ...)
+  })
+})
+```
+
+---
+
+## 7. Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  INPUT: Form1!Table1                                            │
+│  Row 0:  [ID, ?, Date, Email, ?, ProjectName, ResourceCount,    │
+│           Q7, Q8, ..., Q91]  (header row = question text)       │
+│  Rows 1+: one row per project submission                        │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                    getQuestions()
+                    (extracts 4 × question dictionaries)
+                               │
+                    ┌──────────▼──────────┐
+                    │  Per-project loop   │
+                    └──────────┬──────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              ▼                ▼                ▼          ▼
+   CalculateLevelScore   CalculateLevelScore  ...×4
+   (indexes, weight=60%) (indexes, weight=20%)
+              │                │
+              └────────────────┴──── sum ──► finalScore
+                                               │
+                                     maturity label (M1/M2/M3/M4)
+                                               │
+              ┌────────────────────────────────┤
+              ▼                                ▼
+   DEMaturitySummary row           Per-project sheet
+   (SummaryTable)                  (A1:B11 summary + 4 level tables)
+```
+
+---
+
+## 8. Workbook State Machine
+
+```
+BEFORE RUN
+  Workbook: Form1 (+ optional "_*" utility sheets)
+
+DURING RUN  (Phase 1 — read)
+  Workbook: unchanged
+
+DURING RUN  (Phase 2 — delete + create summary)
+  Delete: all sheets except Form1 and _* sheets
+  Create: DEMaturitySummary
+  Create: <ProjectName>_<ID>  (empty, name reserved)
+
+DURING RUN  (Phase 3 — write project sheets)
+  Populate: each <ProjectName>_<ID> sheet
+
+AFTER RUN
+  Workbook: Form1
+           DEMaturitySummary   ← activated (brought to front)
+           <Project1>_<ID1>
+           <Project2>_<ID2>
+           ...
+```
+
+> ⚠️ **The deletion in Phase 2 is irreversible.** Any sheets from a previous run are wiped before the new run populates fresh data.
+
+---
+
+## 9. Key Design Decisions
+
+### Single `Excel.run` context
+All Excel API calls share one `Excel.run` execution context. This is efficient because:
+- Objects loaded in Phase 1 are still valid in Phase 3.
+- Fewer round-trips are needed to the Excel host.
+- The batch queue (`context.sync()`) can be controlled precisely.
+
+### Deferred sheet writing
+Project sheet names are reserved (via `sheets.add`) in Phase 2, but data is only written in Phase 3 after a `context.sync`. This is because `sheets.add` is a **queued operation** — the sheet object isn't usable until the queue is flushed.
+
+### Platform-aware sync
+```javascript
+if (platform == "OfficeOnline") {
+  context.sync();           // fire-and-forget in Office Online
+} else {
+  await context.sync();     // await in desktop Excel
+}
+```
+Office Online handles sync slightly differently; the non-awaited path avoids potential deadlocks in the web client.
+
+### Hard-coded column indexes
+Question positions (indexes 7–91) are hard-coded arrays. This mirrors the fixed structure of the Microsoft Forms export. If the survey form is modified (questions reordered or added), the index arrays in `taskpane.js` must be updated accordingly.
+
+### Sheet name sanitisation
+```javascript
+projectName.substring(0, 25).replace(/[^a-zA-Z0-9]/g, '') + "_" + responseId
+```
+Excel sheet names cannot exceed 31 characters and cannot contain special characters. The name is truncated to 25 chars and non-alphanumeric characters are stripped, then the unique response ID is appended.
+
+---
+
+## 10. Extension Points
+
+| Change | Files to modify |
+|---|---|
+| Add or reorder survey questions | `level1MaturityIndexes`, `level2MaturityIndexes`, `level3MaturityIndexes`, `level4MaturityIndexes` arrays in `taskpane.js` |
+| Change level weightages (60/20/10/10) | `CalculateLevelScore()` call arguments in the per-project loop |
+| Change maturity thresholds (60/80/90) | `if/else if` block following `finalScore` calculation |
+| Add a new response type | `responseScores` dictionary |
+| Change output formatting | `applyLevelQuestionTopRowProperties()`, cell format calls in Phase 3 |
+| Add a new output sheet | Phase 2 (create) + Phase 3 (populate) within `Excel.run` |
+| Change the task pane UI | `taskpane.html` + `taskpane.css` |
+| Change the ribbon button label | `manifest.xml` → `TaskpaneButton.Label` string resource |
+| Deploy to a different domain | `manifest.xml` → all `DefaultValue` URL attributes |
