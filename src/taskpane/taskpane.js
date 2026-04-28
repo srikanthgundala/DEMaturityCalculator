@@ -195,7 +195,7 @@ export async function run() {
           ["FINAL SCORE", projectSheetData.finalScore],
           ["MATURITY", projectSheetData.maturity]
         ];
-        var summaryRange = projectSheet.getRange("A1:B11");
+        var summaryRange = projectSheet.getRange("A1:B11"); // 11 rows: ID, PROJECT, REVIEW DATE, EMAIL, RESOURCE COUNT, L1–L4 SCORES, FINAL SCORE, MATURITY
         summaryRange.values = summaryData;
         if (Office.context.requirements.isSetSupported("ExcelApi", "1.2")) {
              summaryRange.format.autofitColumns();
@@ -208,7 +208,7 @@ export async function run() {
         level1ScoreRange.format.font.color = "#FF0000";
         }
 
-        var maturityCellRange = summaryRange.getCell(10, 1); // maturity cell (row index 10 in the 11-row summary)
+        var maturityCellRange = summaryRange.getCell(10, 1); // 0-based row index 10 → 11th row (B11) = MATURITY value
         maturityCellRange.format.fill.color = "#FFFFE0";
         maturityCellRange.format.horizontalAlignment = "Center";
         maturityCellRange.format.borders.getItem('InsideHorizontal').style = "Double";
