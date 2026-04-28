@@ -32,7 +32,7 @@ Pick this agent when you need to:
 Save all generated documentation to the `docsbycopilot/` folder at the repository root. Adapt the file structure to what's relevant for this project. Common files include:
 
 ```
-docs/
+docsbycopilot/
 ├── api-reference.md        # REST/GraphQL API endpoints (if applicable)
 ├── architecture.md         # System design & component overview
 ├── models.md               # Data models, enums, DTOs
