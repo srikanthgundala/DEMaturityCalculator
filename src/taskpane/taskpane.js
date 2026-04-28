@@ -26,11 +26,17 @@ export async function run() {
     await Excel.run(async context => {
 
       // Setting up Maturity levels
-      var level1MaturityIndexes = [7, 8, 9, 10, 11, 12, 13, 14, 18, 19, 20, 21, 22, 23, 24, 27, 28, 29, 30, 31, 33, 34, 35, 36, 37, 38, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 59, 60, 61, 62, 63, 64, 67, 68, 72, 73, 74, 75, 76, 79, 80, 81, 82, 83, 84, 85, 86];
-      var level2MaturityIndexes = [15, 16, 25, 17, 32, 39, 55, 56, 57, 65, 66, 69, 77, 87, 88];
-      var level3MaturityIndexes = [26, 40, 41, 42, 43, 58, 70, 71, 78, 89, 90, 91];
+      // Level 1 (55% weight): Core / foundational practices
+      var level1MaturityIndexes = [7, 8, 9, 10, 11, 12, 13, 14, 18, 19, 20, 21, 22, 23, 24, 27, 28, 29, 30, 31, 33, 34, 35, 36, 37, 38, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 59, 60, 61, 62, 63, 64, 67, 68, 72, 73, 74, 75, 76, 79, 80, 81, 82, 83];
+      // Level 2 (20% weight): Intermediate practices (re-ranked: includes questions 84, 85, 86 moved up from L1)
+      var level2MaturityIndexes = [15, 16, 25, 17, 32, 39, 55, 56, 57, 65, 66, 69, 77, 84, 85, 86, 87, 88];
+      // Level 3 (15% weight): Advanced practices (re-ranked: questions 89, 90, 91 promoted to L4)
+      var level3MaturityIndexes = [26, 40, 41, 42, 43, 58, 70, 71, 78];
+      // Level 4 (10% weight): Cutting-edge / optimising practices (new level for M4)
+      var level4MaturityIndexes = [89, 90, 91];
       const RESPONSE_MAX_SCORE = 10;
-      const LEVEL_MIN_THRESHOLD = 70;
+      // Minimum weighted L1 score threshold (~73 % of max L1 weighted score of 55)
+      const LEVEL_MIN_THRESHOLD = 40;
 
       //Setting Up scores
       var responseScores = {};
@@ -72,23 +78,26 @@ export async function run() {
       var level1Questions = getQuestions(headerValues, level1MaturityIndexes);
       var level2Questions = getQuestions(headerValues, level2MaturityIndexes);
       var level3Questions = getQuestions(headerValues, level3MaturityIndexes);
+      var level4Questions = getQuestions(headerValues, level4MaturityIndexes);
 
       //create DEMaturitySummary Sheet
       var maturitySheet = sheets.add("DEMaturitySummary");
       await context.sync();
       maturitySheet = context.workbook.worksheets.getItem("DEMaturitySummary");
-      var summaryTable = maturitySheet.tables.add("A1:J1", true /*hasHeaders*/);
+      var summaryTable = maturitySheet.tables.add("A1:K1", true /*hasHeaders*/);
       summaryTable.name = "SummaryTable";
-      summaryTable.getHeaderRowRange().values = [["ID", "PROJECT", "REVIEW DATE", "EMAIL", "RESOURCE COUNT", "LEVEL 1 SCORE", "LEVEL 2 SCORE", "LEVEL 3 SCORE", "FINAL SCORE", "MATURITY"]];
+      summaryTable.getHeaderRowRange().values = [["ID", "PROJECT", "REVIEW DATE", "EMAIL", "RESOURCE COUNT", "LEVEL 1 SCORE", "LEVEL 2 SCORE", "LEVEL 3 SCORE", "LEVEL 4 SCORE", "FINAL SCORE", "MATURITY"]];
 
       var projectSheetsData = [];// for storing all project response calculations
 
       // Looping project response to calculate maturity
       for (var i = 0; i < projectResponses.values.length; i++) {
-        var level1CalculationDetails = CalculateLevelScore(projectResponses.values[i], responseScores, level1MaturityIndexes, 70);
+        // Level weights: L1=55%, L2=20%, L3=15%, L4=10% (total=100%)
+        var level1CalculationDetails = CalculateLevelScore(projectResponses.values[i], responseScores, level1MaturityIndexes, 55);
         var level2CalculationDetails = CalculateLevelScore(projectResponses.values[i], responseScores, level2MaturityIndexes, 20);
-        var level3CalculationDetails = CalculateLevelScore(projectResponses.values[i], responseScores, level3MaturityIndexes, 10);
-        var finalScore = level1CalculationDetails.weightedLevelScore + level2CalculationDetails.weightedLevelScore + level3CalculationDetails.weightedLevelScore;
+        var level3CalculationDetails = CalculateLevelScore(projectResponses.values[i], responseScores, level3MaturityIndexes, 15);
+        var level4CalculationDetails = CalculateLevelScore(projectResponses.values[i], responseScores, level4MaturityIndexes, 10);
+        var finalScore = level1CalculationDetails.weightedLevelScore + level2CalculationDetails.weightedLevelScore + level3CalculationDetails.weightedLevelScore + level4CalculationDetails.weightedLevelScore;
         var responseId = projectResponses.values[i][0];
         var projectName = projectResponses.values[i][5];
         var reviewDate = getJsDateFromExcel(projectResponses.values[i][2]);
@@ -96,14 +105,23 @@ export async function run() {
         var resourceCount = projectResponses.values[i][6];
         var projectSheetName = projectName.substring(0, 25).replace(/[^a-zA-Z0-9]/g, '') + "_" + responseId;
         // maturity calculation
+        // M1: ≤ 40  |  M2: 41–65  |  M3: 66–85  |  M4: > 85 (and L4 score ≥ 8)
         var maturity = "";
-        if (finalScore <= 70) {
+        if (finalScore <= 40) {
           maturity = "M1";
         }
-        else if (finalScore > 70 && finalScore <= 90) {
+        else if (finalScore > 40 && finalScore <= 65) {
           maturity = "M2";
         }
-        else if (finalScore > 90) {
+        else if (finalScore > 65 && finalScore <= 85) {
+          maturity = "M3";
+        }
+        else if (finalScore > 85 && level4CalculationDetails.weightedLevelScore >= 8) {
+          // M4 requires an overall score above 85 AND strong performance (≥80 %) on Level 4 questions
+          maturity = "M4";
+        }
+        else {
+          // High overall score but Level 4 questions not sufficiently answered → M3
           maturity = "M3";
         }
 
@@ -117,6 +135,7 @@ export async function run() {
             level1CalculationDetails.weightedLevelScore,
             level2CalculationDetails.weightedLevelScore,
             level3CalculationDetails.weightedLevelScore,
+            level4CalculationDetails.weightedLevelScore,
             finalScore,
             maturity
           ]]
@@ -141,6 +160,7 @@ export async function run() {
             level1CalculationDetails: level1CalculationDetails,
             level2CalculationDetails: level2CalculationDetails,
             level3CalculationDetails: level3CalculationDetails,
+            level4CalculationDetails: level4CalculationDetails,
             finalScore: finalScore,
             maturity: maturity,
             projectSheetName: projectSheetName
@@ -171,23 +191,24 @@ export async function run() {
           ["LEVEL 1 SCORE", projectSheetData.level1CalculationDetails.weightedLevelScore],
           ["LEVEL 2 SCORE", projectSheetData.level2CalculationDetails.weightedLevelScore],
           ["LEVEL 3 SCORE", projectSheetData.level3CalculationDetails.weightedLevelScore],
+          ["LEVEL 4 SCORE", projectSheetData.level4CalculationDetails.weightedLevelScore],
           ["FINAL SCORE", projectSheetData.finalScore],
           ["MATURITY", projectSheetData.maturity]
         ];
-        var summaryRange = projectSheet.getRange("A1:B10");
+        var summaryRange = projectSheet.getRange("A1:B11");
         summaryRange.values = summaryData;
         if (Office.context.requirements.isSetSupported("ExcelApi", "1.2")) {
              summaryRange.format.autofitColumns();
         }
       
         
-        // Highlighting level 1 score if less than 70
-        if(projectSheetData.level1CalculationDetails.weightedLevelScore < 70){
+        // Highlighting level 1 score if less than threshold
+        if(projectSheetData.level1CalculationDetails.weightedLevelScore < LEVEL_MIN_THRESHOLD){
         var level1ScoreRange=summaryRange.getCell(5, 1);// level 1 cell
         level1ScoreRange.format.font.color = "#FF0000";
         }
 
-        var maturityCellRange = summaryRange.getCell(9, 1); // maturity cell
+        var maturityCellRange = summaryRange.getCell(10, 1); // maturity cell (row index 10 in the 11-row summary)
         maturityCellRange.format.fill.color = "#FFFFE0";
         maturityCellRange.format.horizontalAlignment = "Center";
         maturityCellRange.format.borders.getItem('InsideHorizontal').style = "Double";
@@ -244,6 +265,19 @@ export async function run() {
           rowIndex + 4,
           context);
 
+        projectSheet.getRange("B" + (rowIndex + 3)).values = [["Level 4 Questions"]];
+        var level4Range = projectSheet.getRange("B" + (rowIndex + 3) + ":" + "C" + (rowIndex + 3));
+        applyLevelQuestionTopRowProperties(level4Range);
+
+        rowIndex = addLevelTable(level4Questions,
+          projectSheetData.level4CalculationDetails.levelFailures,
+          projectSheet,
+          level4MaturityIndexes,
+          "Level4",
+          projectResponses.values[i],
+          rowIndex + 4,
+          context);
+
         if (Office.context.requirements.isSetSupported("ExcelApi", "1.2")) {
           projectSheet.getUsedRange().format.autofitColumns();
           projectSheet.getUsedRange().format.autofitRows();
@@ -268,6 +302,8 @@ export async function run() {
         applyFilter(level2filter);
         var level3filter = projectSheet.tables.getItem("Level3Table" + projectResponses.values[i][0]).columns.getItem("Response").filter;
         applyFilter(level3filter);
+        var level4filter = projectSheet.tables.getItem("Level4Table" + projectResponses.values[i][0]).columns.getItem("Response").filter;
+        applyFilter(level4filter);
 
         //DEMaturitySummary -----> Project hyperlink
         var gotoProjectLink = {
@@ -282,9 +318,9 @@ export async function run() {
           textToDisplay: projectSheetData.maturity,
           screenTip: "Navigate to the " + projectResponses.values[i][5] + " worksheet",
           //address: "https://www.bing.com"
-          documentReference: projectSheetsData[i].projectSheetName + "!B10"
+          documentReference: projectSheetsData[i].projectSheetName + "!B11"
         };
-        var maturityhyperRange = maturitySheet.getRange("J" + (i + 2));
+        var maturityhyperRange = maturitySheet.getRange("K" + (i + 2));
         maturityhyperRange.getCell(0, 0).hyperlink = gotoProjectLinkFromMaturity;
         //Formatting Maturtity Cell
         maturityhyperRange.format.fill.color = "#FFFFE0";
@@ -299,7 +335,7 @@ export async function run() {
           //address: "https://www.bing.com"
           documentReference: "DEMaturitySummary" + "!A1"
         };
-        var hyperlinkRange = projectSheet.getRange("B11");
+        var hyperlinkRange = projectSheet.getRange("B12");
         hyperlinkRange.getCell(0, 0).hyperlink = gotoSummaryLink;
         hyperlinkRange.format.font.bold = true;
         hyperlinkRange.format.font.color = "#7C3606";
