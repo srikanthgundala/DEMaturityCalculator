@@ -431,10 +431,10 @@ function action(event: Office.AddinCommands.Event): void
 
 #### Side Effects
 
-- Calls `Office.context.mailbox.item.notificationMessages.replaceAsync("action", message)` to show an "Performed action." notification.
+- Shows an "Performed action." notification using `Office.context.mailbox.item.notificationMessages.replaceAsync(...)` — **this call targets the Outlook-specific `mailbox` API and does not execute in an Excel context**.
 - Calls `event.completed()`.
 
-> **Note:** The `mailbox` API is intended for Outlook add-ins. This function is a template remnant; it is not triggered during normal DEMaturityCalculator usage because the ribbon button uses a `ShowTaskpane` action, not a `ExecuteFunction` action.
+> **Note:** `action()` is a template placeholder retained from the Yo Office scaffold. Because the DEMaturityCalculator ribbon button is configured as a `ShowTaskpane` action (not `ExecuteFunction`), this function is never invoked during normal add-in usage. The `Office.context.mailbox` reference is non-functional in Excel and can be safely ignored.
 
 ---
 

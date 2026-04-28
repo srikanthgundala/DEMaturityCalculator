@@ -30,7 +30,7 @@ Before you begin, make sure the following tools are installed:
 | **Git** | Any recent version | https://git-scm.com |
 | **Microsoft Excel** | Microsoft 365 (desktop or web) | — |
 
-> **macOS users:** Excel for Microsoft 365 is required. The standalone "Excel 2019" does not support Office Add-ins with `VersionOverrides`.
+> **macOS users:** Excel for Microsoft 365 (subscription) is required. Perpetual-license versions of Excel (e.g., Excel 2019 without a Microsoft 365 subscription) may have limited support for task-pane add-ins and ribbon customisation via `VersionOverrides`.
 
 ---
 
