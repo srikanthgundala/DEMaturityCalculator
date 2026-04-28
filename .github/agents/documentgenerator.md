@@ -25,7 +25,7 @@ Pick this agent when you need to:
 - **Stay current.** If the code disagrees with existing docs, the code wins — update the docs.
 - **Use examples.** Include request/response JSON examples for API endpoints, and code snippets for library usage.
 - **Keep it scannable.** Use tables for parameter lists, code blocks for examples, and headers for navigation.
-- **Only create or edit files in `docs/`.** Do not modify source code files.
+- **Only create or edit files in `docsbycopilot/`.** Do not modify source code files.
 
 ### Output Location
 
