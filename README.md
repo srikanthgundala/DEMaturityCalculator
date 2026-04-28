@@ -167,7 +167,7 @@ The table columns must follow the layout below. Questions begin at **column inde
 |---|---|---|
 | 0 | A | Response ID |
 | 1 | B | *(reserved / additional metadata)* |
-| 2 | C | Review Date *(Excel date serial number)* |
+| 2 | C | Review Date *(stored as an Excel date serial number; the add-in converts this to `MM-DD-YYYY` format in all output sheets)* |
 | 3 | D | Reviewer Email |
 | 4 | E | *(reserved)* |
 | 5 | F | Project Name |
@@ -354,7 +354,7 @@ DEMaturityCalculator/
 |---|---|
 | `src/taskpane/taskpane.js` | Entry point for all business logic: reads `Form1/Table1`, calculates level scores with `CalculateLevelScore()`, creates `DEMaturitySummary` and per-project sheets, applies formatting, filters, and hyperlinks |
 | `src/taskpane/taskpane.html` | Minimal task pane UI: Neudesic logo, welcome header, and the **Calculate Maturity** button |
-| `src/taskpane/dialogs.js` | Bundled copy of the `officejs.dialogs` v1.0.9 library — provides `Wait`, `MessageBox`, `Alert`, `InputBox`, `Progress`, `Form` globals |
+| `src/taskpane/dialogs.js` | Bundled copy of the `officejs.dialogs` v1.0.9 library — the add-in uses the `Wait` (processing spinner) and `MessageBox` (error dialogs) globals from this library |
 | `manifest.xml` | Declares the add-in to Office: host (`Workbook`), permissions (`ReadWriteDocument`), ribbon button placement (`Home → DE Group`), and dev-server URLs |
 | `webpack.config.js` | Builds two entry points (`taskpane`, `commands`) and copies static assets; dev server uses `office-addin-dev-certs` for HTTPS on port 3000 |
 
@@ -487,9 +487,7 @@ Pull requests are typically reviewed within 10 business days. For new features, 
 
 This project is licensed under the **MIT License**. See the [`LICENSE`](LICENSE) file for full details.
 
-```
-MIT License — Copyright (c) Microsoft Corporation. All rights reserved.
-```
+> **Note:** The project was scaffolded from the [OfficeDev/Office-Addin-TaskPane-JS](https://github.com/OfficeDev/Office-Addin-TaskPane-JS) template (© Microsoft Corporation). The DEMaturityCalculator business logic and customisations were developed by **Neudesic**.
 
 ---
 
