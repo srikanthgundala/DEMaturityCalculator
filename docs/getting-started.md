@@ -95,7 +95,7 @@ The header row of `Table1` must contain the survey question text. The data rows 
 npm run build
 ```
 
-The production bundle is output to the `dist/` folder. Host these static files on your organisation's web server and update the URLs in `manifest.xml` accordingly.
+The production bundle is output to the `dist/` folder. Host these static files on your organization's web server and update the URLs in `manifest.xml` accordingly.
 
 ---
 
